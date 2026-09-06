@@ -1,0 +1,52 @@
+name: Compilar APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Amazon_FNAC_SumUp_v0.10_LISTO_GITHUB_ACTIONS.zip'
+      - '.github/workflows/build-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Descomprimir proyecto
+        run: |
+          mkdir proyecto
+          unzip -q Amazon_FNAC_SumUp_v0.10_LISTO_GITHUB_ACTIONS.zip -d proyecto
+
+      - name: Corregir escape Java
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('proyecto/app/src/main/java/com/bellaflor/inventory/MainActivity.java')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('/a\\d+', '/a\\\\d+')
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Compilar APK
+        working-directory: proyecto
+        run: gradle assembleDebug --stacktrace
+
+      - name: Guardar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: APK-para-probar
+          path: proyecto/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
