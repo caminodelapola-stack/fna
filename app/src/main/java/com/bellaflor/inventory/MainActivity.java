@@ -79,9 +79,9 @@ public class MainActivity extends Activity {
         }
         @JavascriptInterface public void resolveFnacBatch(String json) {
             new Thread(() -> {
-                JSONObject response = new JSONObject(); JSONArray out = new JSONArray(); int checked = 0;
+                JSONObject response = new JSONObject(); JSONArray out = new JSONArray(); JSONArray attempted = new JSONArray(); int checked = 0;
                 try {
-                    JSONArray items = new JSONArray(json); int max = Math.min(items.length(), 12); JSONArray attempted = new JSONArray();
+                    JSONArray items = new JSONArray(json); int max = Math.min(items.length(), 12);
                     for (int i=0;i<max;i++) {
                         String title = items.getJSONObject(i).optString("title", "").trim();
                         if (title.isEmpty()) continue; checked++; attempted.put(title);
