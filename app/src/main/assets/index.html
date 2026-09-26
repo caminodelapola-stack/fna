@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inventario Amazon · FNAC · SumUp</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color-scheme:dark}
+body{margin:0;background:#111827;color:#f3f4f6}
+.wrap{max-width:980px;margin:auto;padding:20px}
+h1{font-size:1.65rem;margin:.2rem 0}
+.sub{color:#a5b4fc;margin-bottom:18px}
+.card{background:#1f2937;border:1px solid #374151;border-radius:16px;padding:16px;margin:14px 0}
+input[type=file]{width:100%;padding:12px;border-radius:10px;border:1px dashed #6b7280;background:#111827}
+button{border:0;border-radius:11px;padding:12px 15px;font-weight:700;cursor:pointer;margin:6px 6px 0 0}
+.primary{background:#4f46e5;color:white}.secondary{background:#374151;color:white}
+button:disabled{opacity:.45;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.kpi{background:#111827;border-radius:12px;padding:12px}.kpi b{font-size:1.45rem;display:block}
+.ok{color:#86efac}.warn{color:#fde68a}.bad{color:#fca5a5}
+small{color:#9ca3af}
+table{width:100%;border-collapse:collapse;font-size:.86rem}
+th,td{padding:8px;border-bottom:1px solid #374151;text-align:left;vertical-align:top}
+th{position:sticky;top:0;background:#1f2937}
+.scroll{max-height:320px;overflow:auto}
+.tag{display:inline-block;padding:2px 8px;border-radius:99px;background:#374151;margin-right:5px}
+label.check{display:flex;gap:8px;align-items:center;margin-top:10px;color:#d1d5db}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Amazon · FNAC · SumUp</h1>
+  <div class="sub">Conversor de inventario: Amazon → FNAC España, FNAC Portugal y SumUp. <span class="tag">v0.10</span></div>
+
+  <div class="card">
+    <b>1. Cargar inventario Amazon</b>
+    <p><small>Acepta TXT, TSV o CSV exportado desde Amazon Seller. Todo se procesa en el navegador.</small></p>
+    <a href="https://sellercentral.amazon.es/reportcentral/ALL_LISTINGS/0" target="_blank" rel="noopener"><button class="secondary" type="button">Descargar inventario de Amazon</button></a>
+    <p><small>En Seller Central: Informes → Informes de inventario → Informe de todos los listings → Solicitar → Descargar.</small></p>
+    <label class="secondary" style="display:inline-block;padding:10px 14px;border-radius:10px;cursor:pointer">Cargar archivo Amazon<input id="file" type="file" accept=".txt,.tsv,.csv" style="display:none"></label>
+    <p><small><b>Enriquecer con SumUp:</b> carga tu exportación de SumUp. La app busca EAN en SKU/Barcode y compara títulos de forma conservadora para recuperar EAN sin mezclar productos.</small></p>
+    <label class="secondary" style="display:inline-block;padding:10px 14px;border-radius:10px;cursor:pointer">Cargar archivo SumUp<input id="sumupfile" type="file" accept=".csv,.xlsx,.xls,.txt" style="display:none"></label>
+    <p><small>Opcional: también puedes cargar un CSV de equivalencias ASIN→EAN.</small></p>
+    <label class="secondary" style="display:inline-block;padding:10px 14px;border-radius:10px;cursor:pointer">Cargar mapa ASIN→EAN<input id="mapfile" type="file" accept=".txt,.tsv,.csv" style="display:none"></label>
+    <p><small><b>Completar con FNAC:</b> puedes cargar páginas HTML guardadas de productos FNAC o un CSV/TXT exportado con EAN/GTIN. La app extrae <code>gtin13</code>, <code>gtin</code>, EAN/ISBN y los cruza por título. Todo queda guardado en el navegador.</small></p>
+    <label class="secondary" style="display:inline-block;padding:10px 14px;border-radius:10px;cursor:pointer">Cargar datos FNAC<input id="fnacfile" type="file" accept=".html,.htm,.txt,.csv" multiple style="display:none"></label>
+    <div style="margin-top:8px">
+      <button id="autofnac" class="primary" type="button">Buscar próximos EAN en FNAC España</button>
+      <button id="clearfnac" class="secondary" type="button">Borrar caché FNAC</button>
+    </div>
+    <p><small id="autofnacstatus">En Android, este botón consulta primero FNAC España y usa FNAC Portugal solo como respaldo. Busca por lotes pequeños para evitar que la app se quede bloqueada.</small></p>
+  </div>
+
+  <div class="card">
+    <b>2. Resultado</b><p><small>Primero carga los archivos arriba. Los botones “Descargar” solo generan/guardan la salida; no cargan inventarios.</small></p>
+    <div class="grid" style="margin-top:12px">
+      <div class="kpi"><small>Filas Amazon</small><b id="rows">0</b></div>
+      <div class="kpi"><small>EAN / ISBN-13 válidos</small><b id="eans" class="ok">0</b></div>
+      <div class="kpi"><small>ASIN detectados</small><b id="asins" class="ok">0</b></div>
+      <div class="kpi"><small>ISBN-10 convertidos</small><b id="isbns" class="ok">0</b></div>
+      <div class="kpi"><small>Sin EAN válido</small><b id="noeans" class="warn">0</b></div>
+      <div class="kpi"><small>Condición a revisar</small><b id="conds" class="warn">0</b></div>
+      <div class="kpi"><small>EAN en SumUp</small><b id="sumupeans" class="ok">0</b></div>
+      <div class="kpi"><small>EAN recuperados de SumUp</small><b id="sumuprecovered" class="ok">0</b></div>
+      <div class="kpi"><small>EAN en caché FNAC</small><b id="fnaceans" class="ok">0</b></div>
+      <div class="kpi"><small>EAN recuperados de FNAC</small><b id="fnacrecovered" class="ok">0</b></div>
+      <div class="kpi"><small>EAN encontrados online FNAC ES/PT</small><b id="fnacauto" class="ok">0</b></div>
+      <div class="kpi"><small>Listos FNAC Portugal</small><b id="readypt" class="ok">0</b></div>
+    </div>
+    <div style="margin-top:10px">
+      <button id="pt" class="primary" disabled>Descargar FNAC Portugal</button>
+      <button id="es" class="primary" disabled>Descargar FNAC España (base)</button>
+      <button id="sumup" class="primary" disabled>Descargar SumUp</button>
+      <button id="review" class="secondary" disabled>Descargar revisión</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <b>Qué hace automáticamente</b>
+    <p><span class="tag">SKU</span><span class="tag">EAN</span><span class="tag">Precio</span><span class="tag">Stock</span><span class="tag">Estado</span><span class="tag">Título</span><span class="tag">Descripción</span></p>
+    <small>
+      FNAC Portugal usa directamente el fichero de ofertas/stock y omite siempre los artículos con stock 0 para evitar cualquier borrado. La app reconoce ASIN, EAN e ISBN-10. Los ISBN-10 se convierten automáticamente a ISBN-13/EAN-13. Además, puede cargar el fichero de SumUp y recuperar EAN guardados allí usando coincidencias de título conservadoras. También puede enriquecer desde FNAC cargando fichas HTML o ficheros de catálogo: busca GTIN/EAN/ISBN, cruza por título y guarda la relación en caché local. Un ASIN no tiene una conversión matemática a EAN; también puedes cargar un mapa ASIN→EAN obtenido del catálogo. SumUp genera un CSV con su estructura real de importación. FNAC España requiere además datos de catálogo
+      (categoría, tipo, soporte, formato, marca, imágenes, modelo, color, accesorios y garantía) que no están en el informe de inventario Amazon.
+      Esos campos quedan vacíos y aparecen en el fichero de revisión.
+    </small>
+  </div>
+
+  <div class="card">
+    <b>Vista previa</b>
+    <div class="scroll"><table><thead><tr><th>SKU</th><th>Título</th><th>ASIN</th><th>EAN</th><th>Origen ID</th><th>Precio</th><th>Stock</th><th>Estado FNAC</th><th>Revisión</th></tr></thead><tbody id="preview"></tbody></table></div>
+  </div>
+</div>
+
+<script>
+let records=[];
+let sumupRecords=[];
+let sumupTitleIndex=new Map();
+let sumupTokenIndex=new Map();
+let sumupEANCount=0;
+let fnacTitleIndex=new Map();
+let fnacEANCount=0;
+let fnacAutoFound=0;
+try{ fnacTitleIndex=new Map(JSON.parse(localStorage.getItem("fnac_ean_cache_v1")||"[]")); fnacEANCount=fnacTitleIndex.size; }catch(e){}
+
+function detectDelimiter(line){
+  const opts=["\t",";",","];
+  return opts.map(d=>[d,(line.split(d).length-1)]).sort((a,b)=>b[1]-a[1])[0][0];
+}
+function parseDelimited(text){
+  text=text.replace(/^\uFEFF/,'');
+  const lines=text.split(/\r?\n/).filter(x=>x.trim().length);
+  if(!lines.length) return [];
+  const d=detectDelimiter(lines[0]);
+  function row(line){
+    let out=[],cur="",q=false;
+    for(let i=0;i<line.length;i++){
+      const c=line[i];
+      if(c=='"'){
+        if(q && line[i+1]=='"'){cur+='"';i++} else q=!q;
+      } else if(c===d && !q){out.push(cur);cur=""}
+      else cur+=c;
+    }
+    out.push(cur); return out;
+  }
+  const headers=row(lines[0]).map(x=>x.trim());
+  return lines.slice(1).map(l=>{
+    const vals=row(l), o={};
+    headers.forEach((h,i)=>o[h]=vals[i]??"");
+    return o;
+  });
+}
+function col(o,names){
+  for(const n of names) if(o[n]!==undefined && String(o[n]).trim()!=="") return String(o[n]).trim();
+  return "";
+}
+function validEAN13(v){
+  if(!/^\d{13}$/.test(v)) return false;
+  let sum=0; for(let i=0;i<12;i++) sum+=Number(v[i])*(i%2?3:1);
+  return ((10-(sum%10))%10)===Number(v[12]);
+}
+function cleanEAN(v){
+  v=String(v||"").replace(/[^\d]/g,"");
+  return validEAN13(v) ? v : "";
+}
+function isbn10to13(v){
+  v=String(v||"").toUpperCase().replace(/[^0-9X]/g,"");
+  if(!/^[0-9]{9}[0-9X]$/.test(v)) return "";
+  let chk=0; for(let i=0;i<10;i++) chk+=(10-i)*(v[i]==='X'?10:Number(v[i]));
+  if(chk%11!==0) return "";
+  const base='978'+v.slice(0,9); let sum=0;
+  for(let i=0;i<12;i++) sum+=Number(base[i])*(i%2?3:1);
+  return base+((10-(sum%10))%10);
+}
+function looksASIN(v){return /^[A-Z0-9]{10}$/i.test(String(v||'').trim())}
+let asinMap={};
+
+function normalizeTitle(v){
+  return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+    .replace(/\b(usado|used|nuevo|new|ocasion|occasion)\b/g,' ')
+    .replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
+}
+const PLATFORM_WORDS=['ps2','ps3','ps4','ps5','playstation 2','playstation 3','playstation 4','playstation 5','xbox 360','xbox one','xbox series','nintendo ds','nintendo 3ds','nintendo wii','wii u','switch','psp','dreamcast','gamecube'];
+function platformOf(v){
+  const n=normalizeTitle(v);
+  for(const p of PLATFORM_WORDS) if(n.includes(p)) return p;
+  return '';
+}
+function tokens(v){return new Set(normalizeTitle(v).split(' ').filter(x=>x.length>1));}
+function titleScore(a,b){
+  const na=normalizeTitle(a), nb=normalizeTitle(b);
+  if(!na||!nb) return 0;
+  if(na===nb) return 1;
+  const pa=platformOf(a), pb=platformOf(b);
+  if(pa && pb && pa!==pb) return 0;
+  const A=tokens(a), B=tokens(b); if(!A.size||!B.size) return 0;
+  let inter=0; for(const x of A) if(B.has(x)) inter++;
+  let dice=2*inter/(A.size+B.size);
+  if(na.includes(nb)||nb.includes(na)) dice=Math.max(dice, Math.min(0.97, Math.min(na.length,nb.length)/Math.max(na.length,nb.length)+0.18));
+  if(pa && pb && pa===pb) dice=Math.min(1,dice+0.04);
+  return dice;
+}
+function buildSumUpIndex(){
+  sumupTitleIndex=new Map(); sumupTokenIndex=new Map(); sumupEANCount=0;
+  let uid=0;
+  for(const r of sumupRecords){
+    const title=col(r,['Item name','Item Name','Name','Título','Titulo']);
+    const ean=cleanEAN(col(r,['SKU','Barcode','EAN','GTIN']));
+    if(!title||!ean) continue;
+    sumupEANCount++;
+    const key=normalizeTitle(title);
+    const item={title,ean,key,id:uid++};
+    if(!sumupTitleIndex.has(key)) sumupTitleIndex.set(key,[]);
+    sumupTitleIndex.get(key).push(item);
+    for(const t of tokens(title)){
+      if(t.length<3) continue;
+      if(!sumupTokenIndex.has(t)) sumupTokenIndex.set(t,[]);
+      sumupTokenIndex.get(t).push(item);
+    }
+  }
+}
+function matchSumUp(title){
+  if(!title || !sumupEANCount) return null;
+  const key=normalizeTitle(title);
+  const exact=sumupTitleIndex.get(key)||[];
+  const exactUnique=[...new Map(exact.map(x=>[x.ean,x])).values()];
+  if(exactUnique.length===1) return {...exactUnique[0],score:1};
+  const A=[...tokens(title)].filter(t=>t.length>=3); if(!A.length) return null;
+  // v0.10: solo comparamos candidatos que comparten palabras con el producto.
+  // Evita comparar 7.800 Amazon x 2.000 SumUp y congelar el navegador.
+  const counts=new Map();
+  for(const t of A){
+    const arr=sumupTokenIndex.get(t)||[];
+    for(const c of arr) counts.set(c,(counts.get(c)||0)+1);
+  }
+  if(!counts.size) return null;
+  const candidates=[...counts.entries()]
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,80)
+    .map(x=>x[0]);
+  let best=null, second=0;
+  for(const c of candidates){
+    const sc=titleScore(title,c.title);
+    if(!best || sc>best.score){second=best?best.score:second;best={...c,score:sc}}
+    else if(sc>second) second=sc;
+  }
+  if(!best) return null;
+  const min=A.length<=2?0.94:0.86;
+  if(best.score>=min && (best.score-second>=0.06 || best.score>=0.97)) return best;
+  return null;
+}
+
+async function unzipXlsxFirstColumn(file){
+  const buf=await file.arrayBuffer(), dv=new DataView(buf), u8=new Uint8Array(buf);
+  let eocd=-1;
+  for(let i=u8.length-22;i>=Math.max(0,u8.length-65557);i--){if(dv.getUint32(i,true)===0x06054b50){eocd=i;break}}
+  if(eocd<0) throw new Error('ZIP/XLSX no reconocido');
+  const total=dv.getUint16(eocd+10,true), cdOff=dv.getUint32(eocd+16,true); let p=cdOff; const entries={};
+  const dec=new TextDecoder('utf-8');
+  for(let n=0;n<total;n++){
+    if(dv.getUint32(p,true)!==0x02014b50) break;
+    const method=dv.getUint16(p+10,true), csize=dv.getUint32(p+20,true), nlen=dv.getUint16(p+28,true), xlen=dv.getUint16(p+30,true), clen=dv.getUint16(p+32,true), loff=dv.getUint32(p+42,true);
+    const name=dec.decode(u8.slice(p+46,p+46+nlen)); entries[name]={method,csize,loff}; p+=46+nlen+xlen+clen;
+  }
+  async function get(name){
+    const e=entries[name]; if(!e) return '';
+    const lp=e.loff, nlen=dv.getUint16(lp+26,true), xlen=dv.getUint16(lp+28,true), start=lp+30+nlen+xlen, data=u8.slice(start,start+e.csize);
+    if(e.method===0) return dec.decode(data);
+    if(e.method===8){
+      const ds=new DecompressionStream('deflate-raw'); const out=await new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer(); return dec.decode(out);
+    }
+    throw new Error('Compresión XLSX no soportada');
+  }
+  const ssxml=await get('xl/sharedStrings.xml'); const shxml=await get('xl/worksheets/sheet1.xml');
+  const parser=new DOMParser(); const shared=[];
+  if(ssxml){
+    const d=parser.parseFromString(ssxml,'application/xml');
+    for(const si of d.getElementsByTagName('si')) shared.push(Array.from(si.getElementsByTagName('t')).map(t=>t.textContent||'').join(''));
+  }
+  const d=parser.parseFromString(shxml,'application/xml'), lines=[];
+  for(const row of d.getElementsByTagName('row')){
+    let val='';
+    for(const c of row.getElementsByTagName('c')){
+      const ref=c.getAttribute('r')||''; if(!/^A\d+$/.test(ref)) continue;
+      const v=c.getElementsByTagName('v')[0]; if(!v) continue;
+      val=(c.getAttribute('t')==='s')?(shared[Number(v.textContent)]||''):(v.textContent||''); break;
+    }
+    if(val!=='') lines.push(val);
+  }
+  return lines;
+}
+async function parseSumUpFile(file){
+  const head=new Uint8Array(await file.slice(0,4).arrayBuffer());
+  if(head[0]===0x50 && head[1]===0x4b){
+    const lines=await unzipXlsxFirstColumn(file);
+    return parseDelimited(lines.join('\n'));
+  }
+  return parseDelimited(await file.text());
+}
+
+function saveFnacCache(){
+  try{ localStorage.setItem("fnac_ean_cache_v1",JSON.stringify([...fnacTitleIndex.entries()])); }catch(e){}
+  fnacEANCount=fnacTitleIndex.size;
+}
+function extractEANsFromText(text){
+  const out=new Set();
+  const patterns=[
+    /(?:gtin13|gtin|ean13|ean|isbn13)[\s\"':=]+(?:\"|')?(\d{13})(?:\"|')?/ig,
+    /\b(\d{13})\b/g
+  ];
+  for(const re of patterns){ let m; while((m=re.exec(text))){ const e=cleanEAN(m[1]); if(e) out.add(e); } }
+  return [...out];
+}
+function titleFromHtml(text){
+  const m=text.match(/<meta[^>]+property=[\"']og:title[\"'][^>]+content=[\"']([^\"']+)/i) || text.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || text.match(/[\"']name[\"']\s*:\s*[\"']([^\"']{5,200})/i);
+  return m?m[1].replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim():'';
+}
+async function importFnacFiles(fileList){
+  let added=0;
+  for(const f of fileList){
+    const text=await f.text();
+    if(/\.(csv|txt)$/i.test(f.name) && !/<html/i.test(text)){
+      const rs=parseDelimited(text);
+      for(const r of rs){
+        const e=cleanEAN(col(r,['EAN','ean','GTIN','gtin','ISBN13','isbn13','Barcode','barcode','Identificação do produto']));
+        const t=col(r,['Titulo','Título','Title','Item name','Nome','name','Product name']);
+        if(e&&t){ const k=normalizeTitle(t); if(k && !fnacTitleIndex.has(k)){fnacTitleIndex.set(k,{ean:e,title:t});added++;} }
+      }
+    }else{
+      const es=extractEANsFromText(text);
+      const t=titleFromHtml(text);
+      if(es.length&&t){ const k=normalizeTitle(t); if(k){ fnacTitleIndex.set(k,{ean:es[0],title:t}); added++; } }
+    }
+  }
+  saveFnacCache(); refresh(); return added;
+}
+function matchFnac(title){
+  if(!title || !fnacTitleIndex.size) return null;
+  const nt=normalizeTitle(title); if(fnacTitleIndex.has(nt)) return {...fnacTitleIndex.get(nt),score:1};
+  let best=null;
+  for(const [k,v] of fnacTitleIndex){ const sc=titleScore(nt,k); if(sc>=0.88 && (!best||sc>best.score)) best={...v,score:sc}; }
+  return best;
+}
+
+function money(v){
+  let x=String(v||"").trim().replace(",",".");
+  let n=Number(x); return Number.isFinite(n)?n.toFixed(2).replace(".",","):"";
+}
+function intStock(v){let n=parseInt(String(v||"0"),10); return Number.isFinite(n)?n:0}
+function fnacCondition(v){
+  const x=String(v||"").trim();
+  // Compatibilidad entre los códigos usados en el informe Amazon y los estados admitidos por FNAC.
+  if(["11","1","2","3","4"].includes(x)) return x;
+  return "";
+}
+function amazonToCommon(o){
+  const productId=col(o,["Identificador del producto","product-id","Product ID"]);
+  const asin=col(o,["ASIN 1","ASIN","asin1"]);
+  const pidRaw=String(productId||'').trim();
+  const asinRaw=String(asin||'').trim().toUpperCase();
+  const directEAN=cleanEAN(pidRaw) || cleanEAN(asinRaw);
+  const isbn13=isbn10to13(pidRaw) || isbn10to13(asinRaw);
+  const detectedAsin = looksASIN(asinRaw)?asinRaw:(looksASIN(pidRaw) && !/^\d{10}$/.test(pidRaw)?pidRaw:'');
+  const mappedEAN = detectedAsin && asinMap[detectedAsin] ? cleanEAN(asinMap[detectedAsin]) : '';
+  const sumupMatch = (!directEAN && !isbn13 && !mappedEAN) ? matchSumUp(col(o,["Título del producto","item-name","Title"])) : null;
+  const sumupEAN = sumupMatch ? sumupMatch.ean : '';
+  const fnacMatch = (!directEAN && !isbn13 && !mappedEAN && !sumupEAN) ? matchFnac(col(o,["Título del producto","item-name","Title"])) : null;
+  const fnacEAN = fnacMatch ? fnacMatch.ean : '';
+  const ean=directEAN || isbn13 || mappedEAN || sumupEAN || fnacEAN;
+  const condRaw=col(o,["Estado del producto","item-condition","condition"]);
+  const productIdType=col(o,["Tipo de identificador de producto","product-id-type","Product ID Type"]);
+  return {
+    title:col(o,["Título del producto","item-name","Title"]),
+    desc:col(o,["Descripción del producto","product-description","Description"]),
+    sku:col(o,["SKU del vendedor","seller-sku","SKU"]),
+    price:col(o,["Precio","price"]),
+    stock:intStock(col(o,["Cantidad","quantity"])),
+    note:col(o,["Nota sobre el producto","item-note","condition-note"]),
+    ean,
+    condition:fnacCondition(condRaw),
+    conditionRaw:condRaw,
+    asin: detectedAsin || asinRaw,
+    productIdType,
+    idSource: directEAN?'EAN':(isbn13?'ISBN-10→ISBN-13':(mappedEAN?'ASIN→EAN mapa':(sumupEAN?'SumUp título '+Math.round(sumupMatch.score*100)+'%':(fnacEAN?'FNAC título '+Math.round(fnacMatch.score*100)+'%':''))))
+  };
+}
+function q(v){
+  v=String(v??"");
+  return /[";\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
+}
+function csv(headers,rows){
+  return "\uFEFF"+[headers,...rows].map(r=>r.map(q).join(";")).join("\r\n");
+}
+function download(name,text){
+  if(window.Android && typeof Android.saveFile === "function"){
+    Android.saveFile(name,text);
+    return;
+  }
+  const blob=new Blob([text],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+const PT_HEADERS=["Identificação do produto","Tipo de produto","SKU do vendedor","Preço","Stock","Estado do produto","Tratamento","Categoria logística","Frete grátis","Tipo de promoção","Data de início da promoção","Data final da promoção","Tipo de desconto da promocao","Quantidade de desconto","Tipo de acionador de promoção","Valor do acionador de promoção","Tipo de cliente que desencadeia a promoção","Código de ativação da promoção","Código associado ao período de saldo","Tempo de preparação","Comentário pt"];
+const ES_HEADERS=["EAN","SKU PART","Méta-Type article","Type article","Support ","Format ","Titulo","Descripcion","Marca","Imagen Principal","MODELO","Colores","Accesorios incluidos","Garantia","Altura (en cm)","Largo (en cm)","Ancho (en cm)","Peso (en kg)","Otra imagen 1","Otra imagen 2","Otra imagen 3","Detalles tecnicos","Menciones legales","Advertencia de seguridad","Pilas rqueridas","Pilas incluidas","Accesorios indispensables","Accesorios opcionales","Capacidad(bottle)"];
+
+function refresh(){
+  const c=records.map(amazonToCommon);
+  rows.textContent=c.length;
+  eans.textContent=c.filter(x=>x.ean).length;
+  asins.textContent=c.filter(x=>x.asin && looksASIN(x.asin)).length;
+  isbns.textContent=c.filter(x=>x.idSource==="ISBN-10→ISBN-13").length;
+  sumupeans.textContent=sumupEANCount;
+  sumuprecovered.textContent=c.filter(x=>x.idSource.startsWith("SumUp título")).length;
+  fnaceans.textContent=fnacEANCount;
+  fnacrecovered.textContent=c.filter(x=>x.idSource.startsWith("FNAC título")).length;
+  fnacauto.textContent=fnacAutoFound;
+  noeans.textContent=c.filter(x=>!x.ean).length;
+  conds.textContent=c.filter(x=>!x.condition).length;
+  readypt.textContent=c.filter(x=>x.ean&&x.sku&&x.condition&&x.stock>0).length;
+  preview.innerHTML=c.slice(0,100).map(x=>{
+    const issues=[];
+    if(!x.ean) issues.push("EAN");
+    if(!x.condition) issues.push("estado");
+    return `<tr><td>${esc(x.sku)}</td><td>${esc(x.title)}</td><td>${esc(x.asin||"—")}</td><td>${esc(x.ean||"—")}</td><td>${esc(x.idSource||"—")}</td><td>${esc(x.price)}</td><td>${x.stock}</td><td>${esc(x.condition||"—")}</td><td>${issues.length?'<span class="warn">'+esc(issues.join(", "))+'</span>':'<span class="ok">OK</span>'}</td></tr>`;
+  }).join("");
+  [pt,es,sumup,review].forEach(b=>b.disabled=!c.length);
+}
+function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+
+file.addEventListener("change",async e=>{
+  fnacTriedKeys.clear();
+  const f=e.target.files[0]; if(!f)return;
+  records=parseDelimited(await f.text()); refresh();
+});
+sumupfile.addEventListener("change",async e=>{
+  const f=e.target.files[0]; if(!f)return;
+  try{
+    sumupRecords=await parseSumUpFile(f); buildSumUpIndex(); refresh();
+    alert(`SumUp cargado: ${sumupRecords.length} filas · ${sumupEANCount} EAN válidos encontrados en SKU/Barcode.`);
+  }catch(err){
+    console.error(err); alert('No pude leer el fichero SumUp: '+err.message);
+  }
+});
+
+fnacfile.addEventListener("change",async e=>{
+  const fs=[...e.target.files]; if(!fs.length)return;
+  try{
+    const n=await importFnacFiles(fs);
+    alert(`FNAC cargado: ${n} referencias añadidas · ${fnacEANCount} EAN/GTIN en caché.`);
+  }catch(err){ console.error(err); alert('No pude leer los ficheros FNAC: '+err.message); }
+});
+clearfnac.addEventListener("click",()=>{
+  fnacTitleIndex.clear(); saveFnacCache(); refresh(); alert('Caché FNAC borrada.');
+});
+
+
+let fnacTriedKeys=new Set();
+function unresolvedForFnac(limit=12){
+  const out=[];
+  for(const x of records.map(amazonToCommon)){
+    if(x.ean || !x.title) continue;
+    const k=normalizeTitle(x.title);
+    if(!k || fnacTriedKeys.has(k)) continue;
+    out.push({title:x.title,asin:x.asin||'',sku:x.sku||''});
+    if(out.length>=limit) break;
+  }
+  return out;
+}
+function onFnacAutoResult(payload){
+  try{
+    const data=typeof payload==='string'?JSON.parse(payload):payload;
+    let added=0;
+    for(const r of (data.results||[])){
+      const e=cleanEAN(r.ean||''); const t=String(r.title||'').trim();
+      if(!e||!t) continue;
+      const k=normalizeTitle(t);
+      if(k){fnacTitleIndex.set(k,{ean:e,title:t,url:r.url||''}); added++;}
+    }
+    for(const t of (data.attempted||[])){ const k=normalizeTitle(t); if(k) fnacTriedKeys.add(k); }
+    fnacAutoFound += added; saveFnacCache(); refresh();
+    autofnac.disabled=false;
+    const left=unresolvedForFnac(1).length? 'Pulsa otra vez para buscar el siguiente lote.' : 'No quedan pendientes sin intentar.';
+    autofnacstatus.textContent=`FNAC online: ${added} EAN nuevos. Consultados ${data.checked||0}. ${data.message||''} ${left}`;
+  }catch(err){autofnac.disabled=false;autofnacstatus.textContent='Error procesando respuesta FNAC: '+err.message;}
+}
+window.onFnacAutoResult=onFnacAutoResult;
+autofnac.addEventListener('click',()=>{
+  const pending=unresolvedForFnac(12);
+  if(!pending.length){autofnacstatus.textContent='No quedan artículos sin EAN para buscar.';return;}
+  if(window.Android && typeof Android.resolveFnacBatch==='function'){
+    autofnac.disabled=true; autofnacstatus.textContent=`Buscando lote de ${pending.length} productos: FNAC España primero, Portugal como respaldo…`;
+    Android.resolveFnacBatch(JSON.stringify(pending));
+  }else{
+    autofnacstatus.textContent='La búsqueda directa necesita la versión Android de la app. En web normal FNAC bloquea la lectura automática por CORS.';
+    alert('Para búsqueda FNAC automática usa la versión Android v0.10.');
+  }
+});
+
+mapfile.addEventListener("change",async e=>{
+  const f=e.target.files[0]; if(!f)return;
+  const rows=parseDelimited(await f.text()); asinMap={};
+  for(const r of rows){
+    const a=col(r,["ASIN","asin","Asin"]).toUpperCase();
+    const ean=col(r,["EAN","ean","Barcode","barcode","GTIN","gtin"]);
+    if(looksASIN(a) && cleanEAN(ean)) asinMap[a]=ean;
+  }
+  refresh();
+});
+
+pt.addEventListener("click",()=>{
+  const rows=[];
+  for(const x of records.map(amazonToCommon)){
+    if(!x.ean || !x.sku || !x.condition) continue;
+    if(x.stock<=0) continue; // seguridad: jamás enviamos una orden de borrado
+    rows.push([
+      x.ean,"4",x.sku,money(x.price),String(x.stock),x.condition,
+      "","","0","","","","","","","","","","","",x.note
+    ]);
+  }
+  download("fnac_portugal_stock.csv",csv(PT_HEADERS,rows));
+});
+es.addEventListener("click",()=>{
+  const rows=records.map(amazonToCommon).filter(x=>x.ean && x.sku).map(x=>[
+    x.ean,x.sku,"","","","",x.title,x.desc,"","","","","","","","","","","","","","","","","","","","",""
+  ]);
+  download("fnac_espana_catalogo_base.csv",csv(ES_HEADERS,rows));
+});
+
+const SUMUP_HEADERS=["Item name","Variations","Option set 1","Option 1","Option set 2","Option 2","Option set 3","Option 3","Option set 4","Option 4","Is variation visible? (Yes/No)","Price","Cost price","Variable price? (Yes/No)","Tax rate (%)","On sale in Online Store?","Regular price (before sale)","Set up different prices and VAT for takeaway","Takeaway price","Takeaway tax rate","Unit","Track inventory? (Yes/No)","Quantity","Low stock threshold","SKU","Barcode","Modifiers","Description (Online Store and Invoices only)","Category","Display item at Checkout? (Yes/No)","Display colour in POS checkout","Image 1","Image 2","Image 3","Image 4","Image 5","Image 6","Image 7","Display item in Online Store? (Yes/No)","SEO title (Online Store only)","SEO description (Online Store only)","Shipping weight [kg] (Online Store only)","Display service in Bookings? (Yes/No)","Duration [minutes] (Bookings only)","Location [business/customer] (Bookings only)","Item id (Do not change)","Variant id (Do not change)"];
+sumup.addEventListener("click",()=>{
+  const rows=records.map(amazonToCommon).filter(x=>x.sku).map(x=>[
+    x.title,"","","","","","","","","","Yes",money(x.price).replace(",","."),"","No","","No","","No","","","each.each","Yes",String(Math.max(0,x.stock)),"0",x.sku,x.ean,"",x.desc,"","Yes","","","","","","","","","Yes",x.title,"","","No","","","",""
+  ]);
+  download("sumup_items_import.csv",csv(SUMUP_HEADERS,rows).replace(/;/g,","));
+});
+
+review.addEventListener("click",()=>{
+  const h=["SKU","Titulo","ASIN","Tipo ID Amazon","EAN","Origen EAN","Precio","Stock","Estado Amazon","Estado FNAC","Problemas","Faltantes FNAC España"];
+  const rows=records.map(amazonToCommon).map(x=>{
+    const issues=[];
+    if(!x.ean) issues.push("Sin EAN de 13 dígitos");
+    if(!x.sku) issues.push("Sin SKU");
+    if(!x.condition) issues.push("Condición no mapeada");
+    if(!x.ean && x.productIdType==="1") issues.push("Amazon solo aporta ASIN en este informe");
+    return [x.sku,x.title,x.asin,x.productIdType,x.ean,x.idSource,x.price,x.stock,x.conditionRaw,x.condition,issues.join(" | "),
+      "Méta-Type article | Type article | Support | Format | Marca | Imagen Principal | MODELO | Colores | Accesorios incluidos | Garantia"];
+  });
+  download("revision_amazon_fnac.csv",csv(h,rows));
+});
+</script>
+</body></html>

@@ -1,0 +1,14 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.bellaflor.inventory'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.bellaflor.inventory'
+        minSdk 23
+        targetSdk 35
+        versionCode 10
+        versionName '0.10'
+    }
+}
