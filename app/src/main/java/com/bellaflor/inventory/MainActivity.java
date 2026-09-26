@@ -118,7 +118,7 @@ public class MainActivity extends Activity {
             for (String su : searchUrls) { searchHtml = httpGet(su, lang); if (searchHtml != null && searchHtml.length() > 500) break; }
             if (searchHtml == null) return null;
             Set<String> links = new LinkedHashSet<>();
-            Matcher lm = Pattern.compile("href=[\"']([^\"']+/a\d+[^\"']*)[\"']", Pattern.CASE_INSENSITIVE).matcher(searchHtml);
+            Matcher lm = Pattern.compile("href=[\"']([^\"']+/a\\d+[^\"']*)[\"']", Pattern.CASE_INSENSITIVE).matcher(searchHtml);
             while (lm.find() && links.size() < 4) {
                 String u = lm.group(1).replace("&amp;", "&");
                 if (u.startsWith("/")) u = base+u;
