@@ -18,10 +18,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android 35 SDK
+      - name: Install Android command line tools and SDK 35
         run: |
-          echo "y" | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          mkdir -p "$RUNNER_TEMP/android-sdk/cmdline-tools/latest"
+          curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o "$RUNNER_TEMP/cmdline-tools.zip"
+          unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$RUNNER_TEMP/android-tools"
+          mv "$RUNNER_TEMP/android-tools/cmdline-tools/"* "$RUNNER_TEMP/android-sdk/cmdline-tools/latest/"
+          echo "ANDROID_HOME=$RUNNER_TEMP/android-sdk" >> "$GITHUB_ENV"
+          yes | "$RUNNER_TEMP/android-sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$RUNNER_TEMP/android-sdk" --licenses >/dev/null || true
+          "$RUNNER_TEMP/android-sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$RUNNER_TEMP/android-sdk" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
